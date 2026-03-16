@@ -2,6 +2,11 @@
 
 CLI tool để tương tác với OpenProject, hỗ trợ quản lý task, cập nhật trạng thái, log time và tạo branch từ task.
 
+```
+Không đi qua server trung gian
+Không thu thập thông tin
+Truy cập thẳng API OP
+```
 ## Cài đặt
 
 ```bash
