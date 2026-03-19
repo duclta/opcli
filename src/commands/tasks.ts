@@ -566,6 +566,86 @@ tasksCommand
   });
 
 tasksCommand
+  .command("create")
+  .description("Create a new work package")
+  .option("-n, --name <name>", "Task name/subject")
+  .option("-d, --description <text>", "Task description")
+  .option("-a, --assignee <user>", "Assignee (name, user ID, or 'me')")
+  .action(async (options: { name?: string; description?: string; assignee?: string }) => {
+    const config = requireConfig();
+    const client = new OpenProjectClient(config);
+
+    try {
+      let subject = options.name;
+      if (!subject) {
+        subject = await input({ message: "Task name:" });
+        if (!subject) {
+          console.error("Task name is required.");
+          process.exit(1);
+        }
+      }
+
+      let description = options.description;
+      if (description === undefined) {
+        description = await input({ message: "Description (optional):" });
+      }
+
+      const projects = await client.listProjects();
+      if (projects.length === 0) {
+        console.error("No projects found.");
+        process.exit(1);
+      }
+
+      let projectHref: string;
+      if (projects.length === 1) {
+        projectHref = projects[0].href;
+        console.log(`Project: ${projects[0].name}`);
+      } else {
+        const chosen = await select({
+          message: "Select project:",
+          choices: projects.map((p) => ({ name: p.name, value: p })),
+        });
+        projectHref = chosen.href;
+      }
+
+      let assigneeHref: string | undefined;
+      if (options.assignee) {
+        if (options.assignee === "me") {
+          assigneeHref = "/api/v3/users/me";
+        } else if (!isNaN(Number(options.assignee))) {
+          assigneeHref = `/api/v3/users/${options.assignee}`;
+        } else {
+          const users = await client.searchUsers(options.assignee);
+          if (users.length === 0) {
+            console.error(`No user found matching "${options.assignee}".`);
+            process.exit(1);
+          }
+          if (users.length > 1) {
+            console.log("Multiple users found:");
+            users.forEach((u) => console.log(`  ${u.id} - ${u.firstName} (${u.login})`));
+            console.error("\nSpecify user ID with -a <id>");
+            process.exit(1);
+          }
+          assigneeHref = `/api/v3/users/${users[0].id}`;
+          console.log(`Assignee: ${users[0].firstName} (${users[0].login})`);
+        }
+      }
+
+      const taskId = await client.createWorkPackage({
+        subject,
+        description: description || undefined,
+        assignee: assigneeHref,
+        project: projectHref,
+      });
+
+      console.log(chalk.green(`\nTask #${taskId} created: ${subject}`));
+    } catch (err: any) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+tasksCommand
   .command("search")
   .description("Interactive search for work packages")
   .option("-a, --assignee <user>", "Filter by assignee (default: me)")

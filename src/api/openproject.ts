@@ -407,6 +407,44 @@ export class OpenProjectClient {
     });
   }
 
+  async listProjects(): Promise<{ id: number; name: string; href: string }[]> {
+    const data = await this.request("/api/v3/projects?pageSize=100");
+    return (data._embedded?.elements || []).map((el: any) => ({
+      id: el.id,
+      name: el.name,
+      href: el._links?.self?.href || `/api/v3/projects/${el.id}`,
+    }));
+  }
+
+  async createWorkPackage(fields: {
+    subject: string;
+    description?: string;
+    assignee?: string;
+    project: string;
+    type?: string;
+  }): Promise<number> {
+    const body: any = {
+      subject: fields.subject,
+      _links: {
+        project: { href: fields.project },
+      },
+    };
+    if (fields.description) {
+      body.description = { raw: fields.description };
+    }
+    if (fields.assignee) {
+      body._links.assignee = { href: fields.assignee };
+    }
+    if (fields.type) {
+      body._links.type = { href: fields.type };
+    }
+    const result = await this.request("/api/v3/work_packages", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return result.id;
+  }
+
   async addComment(workPackageId: number, message: string): Promise<void> {
     await this.request(`/api/v3/work_packages/${workPackageId}/activities`, {
       method: "POST",
