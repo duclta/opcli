@@ -571,7 +571,8 @@ tasksCommand
   .option("-n, --name <name>", "Task name/subject")
   .option("-d, --description <text>", "Task description")
   .option("-a, --assignee <user>", "Assignee (name, user ID, or 'me')")
-  .action(async (options: { name?: string; description?: string; assignee?: string }) => {
+  .option("-p, --project <project>", "Project name or ID")
+  .action(async (options: { name?: string; description?: string; assignee?: string; project?: string }) => {
     const config = requireConfig();
     const client = new OpenProjectClient(config);
 
@@ -597,7 +598,20 @@ tasksCommand
       }
 
       let projectHref: string;
-      if (projects.length === 1) {
+      if (options.project) {
+        const match = projects.find((p) =>
+          !isNaN(Number(options.project))
+            ? p.id === Number(options.project)
+            : p.name.toLowerCase() === options.project!.toLowerCase()
+        );
+        if (!match) {
+          console.error(`Project "${options.project}" not found.`);
+          console.error("Available: " + projects.map((p) => `${p.name} (${p.id})`).join(", "));
+          process.exit(1);
+        }
+        projectHref = match.href;
+        console.log(`Project: ${match.name}`);
+      } else if (projects.length === 1) {
         projectHref = projects[0].href;
         console.log(`Project: ${projects[0].name}`);
       } else {
@@ -719,6 +733,32 @@ tasksCommand
           execSync(`node ${process.argv[1]} tasks create-branch ${chosen.id} ${slug}`, { stdio: "inherit" });
         }
       }
+    } catch (err: any) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+tasksCommand
+  .command("projects")
+  .description("List available projects")
+  .action(async () => {
+    const config = requireConfig();
+    const client = new OpenProjectClient(config);
+
+    try {
+      const projects = await client.listProjects();
+      if (projects.length === 0) {
+        console.log("No projects found.");
+        return;
+      }
+      const idW = Math.max(2, ...projects.map((p) => String(p.id).length));
+      const pad = (s: string, w: number) => s + " ".repeat(Math.max(0, w - s.length));
+      console.log(chalk.bold(`${pad("ID", idW)} | Name`));
+      console.log(chalk.gray("-".repeat(idW + 30)));
+      projects.forEach((p) => {
+        console.log(`${pad(String(p.id), idW)} | ${p.name}`);
+      });
     } catch (err: any) {
       console.error(`Error: ${err.message}`);
       process.exit(1);

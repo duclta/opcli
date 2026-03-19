@@ -191,7 +191,11 @@ export class OpenProjectClient {
 
   async listWorkPackages(options?: { search?: string; assignee?: string }): Promise<WorkPackage[]> {
     const filters: any[] = [];
-    const assignee = options?.assignee || "me";
+    let assignee = options?.assignee || "me";
+    if (assignee === "me") {
+      const me = await this.getMe();
+      assignee = String(me.id);
+    }
     if (assignee !== "all") {
       filters.push({ assignee: { operator: "=", values: [assignee] } });
     }
