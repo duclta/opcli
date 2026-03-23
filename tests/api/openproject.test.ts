@@ -71,6 +71,41 @@ describe("OpenProjectClient", () => {
     expect(tasks[0].subject).toBe("Task A");
   });
 
+  it("listWorkPackages includes version filter when provided", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          _embedded: {
+            elements: [],
+          },
+        }),
+    });
+    await client.listWorkPackages({ assignee: "all", version: "1899" });
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("/api/v3/work_packages");
+    expect(url).toContain("%22version%22");
+    expect(url).toContain("%221899%22");
+  });
+
+  it("listVersions returns version metadata", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          _embedded: {
+            elements: [
+              { id: 1899, name: "Sprint 26", _links: { self: { href: "/api/v3/versions/1899" } } },
+            ],
+          },
+        }),
+    });
+    const versions = await client.listVersions();
+    expect(versions).toHaveLength(1);
+    expect(versions[0].name).toBe("Sprint 26");
+    expect(versions[0].href).toBe("/api/v3/versions/1899");
+  });
+
   it("getWorkPackage returns work package with lockVersion", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
