@@ -1,3 +1,4 @@
+---
 name: opcli
 description: Use the opcli OpenProject CLI from this repository to inspect work packages, update status or assignee, create tasks and git branches, log time by ticket or branch activity, manage notifications, reminders, stats, and alerts, install local workflow hooks, or troubleshoot opcli setup. Trigger when the user mentions opcli, OpenProject CLI workflows, work package IDs or statuses, time logging, branch names like feature/op-123-slug, or terminal-based OpenProject automation.
 ---
