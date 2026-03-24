@@ -163,6 +163,28 @@ export function formatTasksTable(tasks: WorkPackage[]): string {
   return [header, separator, ...rows].join("\n");
 }
 
+export function filterVersions(versions: Version[], search?: string): Version[] {
+  if (!search) return versions;
+
+  const normalized = search.trim().toLowerCase();
+  if (!normalized) return versions;
+
+  return versions.filter((version) =>
+    version.name.toLowerCase().includes(normalized) ||
+    String(version.id).includes(normalized)
+  );
+}
+
+export function formatVersionsTable(versions: Version[]): string {
+  const idW = Math.max(2, ...versions.map((version) => String(version.id).length));
+  const pad = (s: string, w: number) => s + " ".repeat(Math.max(0, w - s.length));
+  const header = chalk.bold(`${pad("ID", idW)} | Name`);
+  const separator = chalk.gray("-".repeat(idW + 40));
+  const rows = versions.map((version) => `${pad(String(version.id), idW)} | ${version.name}`);
+
+  return [header, separator, ...rows].join("\n");
+}
+
 export const tasksCommand = new Command("tasks");
 
 tasksCommand
@@ -214,7 +236,7 @@ tasksCommand
           if (matches.length > 20) {
             console.log(`  ...and ${matches.length - 20} more`);
           }
-          console.error("\nSpecify version ID with --version <id>");
+          console.error("\nSpecify version ID with --wp-version <id>");
           process.exit(1);
         }
       }
@@ -234,6 +256,27 @@ tasksCommand
         return;
       }
       console.log(formatTasksTable(tasks));
+    } catch (err: any) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+tasksCommand
+  .command("versions [search]")
+  .description("List available OpenProject versions/sprints")
+  .action(async (search: string | undefined) => {
+    const config = requireConfig();
+    const client = new OpenProjectClient(config);
+
+    try {
+      const versions = filterVersions(await client.listVersions(), search);
+      if (versions.length === 0) {
+        console.log("No versions found.");
+        return;
+      }
+
+      console.log(formatVersionsTable(versions));
     } catch (err: any) {
       console.error(`Error: ${err.message}`);
       process.exit(1);
@@ -265,6 +308,7 @@ tasksCommand
       console.log(chalk.bold(`#${task.id} ${task.subject}\n`));
       console.log(`  ${chalk.gray("Type:")}       ${task.type}`);
       console.log(`  ${chalk.gray("Project:")}    ${task.project}`);
+      if (task.version) console.log(`  ${chalk.gray("Version:")}    ${task.version}`);
       console.log(`  ${chalk.gray("Status:")}     ${colorStatus(task.status)}`);
       console.log(`  ${chalk.gray("Priority:")}   ${task.priority}`);
       console.log(`  ${chalk.gray("Assignee:")}   ${task.assignee}`);

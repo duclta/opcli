@@ -1,19 +1,29 @@
 # opcli
 
-CLI tool để tương tác với OpenProject, hỗ trợ quản lý task, cập nhật trạng thái, log time và tạo branch từ task.
+`opcli` is a Node.js CLI for working with OpenProject from the terminal. It talks directly to the target OpenProject instance, stores local state under `~/.opcli`, and supports task management, time logging, git-linked workflows, notifications, reminders, stats, and local automation.
 
-```
-Không đi qua server trung gian
-Không thu thập thông tin
-Truy cập thẳng API OP
-```
-## Cài đặt
+## Principles
+
+- No middleware server.
+- No telemetry or data collection in this repo.
+- Direct access to OpenProject pages and API endpoints.
+
+## Requirements
+
+- Node.js `>=18`
+- Access to the target OpenProject instance
+- A shell environment with git available for git-aware commands
+- macOS is the best-supported environment for `tasks view --web`, `alert`, and some shell automation
+
+## Installation
+
+Install from npm:
 
 ```bash
 npm i -g @huynhthuc/opcli
 ```
 
-Hoặc từ source:
+Install from source:
 
 ```bash
 git clone https://github.com/huynhthuchct/opcli.git
@@ -23,370 +33,752 @@ npm run build
 npm link
 ```
 
-Yêu cầu Node.js >= 18.
+Useful checks:
 
-## Cấu hình
+```bash
+opcli --help
+opcli tasks --help
+opcli --version
+```
+
+## Quick Start
+
+1. Configure credentials:
 
 ```bash
 opcli config setup
 ```
 
-Nhập URL OpenProject, username và password. Session được lưu tại `~/.opcli/config.json`.
-
-## Sử dụng
-
-### Danh sách task
+2. Optional: configure your work schedule so `opcli stats` can calculate expected daily hours:
 
 ```bash
-# Task được gán cho mình
+opcli config schedule
+```
+
+3. List your tasks:
+
+```bash
 opcli tasks list
+```
 
-# Tìm kiếm theo tên/ID
+4. Update a task:
+
+```bash
+opcli tasks update 54379 -s "In progress"
+```
+
+5. Log time directly by ticket ID:
+
+```bash
+opcli tasks update 54379 --log-time 1.5 --log-comment "Implemented API fix"
+```
+
+## Configuration And Local State
+
+### `opcli config setup`
+
+Run:
+
+```bash
+opcli config setup
+```
+
+Behavior:
+
+- The current implementation uses a hardcoded OpenProject URL: `https://devtak.cbidigital.com`
+- Prompts for username and password
+- Logs in and stores the returned OpenProject session cookie
+- Prompts for an `autoLogin` preference and stores it in config
+- Saves configuration to `~/.opcli/config.json`
+
+Example stored file shape:
+
+```json
+{
+  "url": "https://devtak.cbidigital.com",
+  "username": "user@example.com",
+  "password": "YmFzZTY0LWVuY29kZWQtcGFzc3dvcmQ=",
+  "session": "session-cookie-value",
+  "autoLogin": true
+}
+```
+
+Notes:
+
+- The password is base64-encoded, not encrypted.
+- The current code stores the `autoLogin` preference, but does not run a background refresh loop by itself.
+
+### `opcli config schedule`
+
+Run:
+
+```bash
+opcli config schedule
+```
+
+Prompts for:
+
+- `startHour`
+- `endHour`
+- `lunchStart`
+- `lunchEnd`
+
+Example:
+
+```bash
+opcli config schedule
+# Start hour (0-23): 8
+# End hour (0-23): 17
+# Lunch start (HH:MM): 12:00
+# Lunch end (HH:MM): 13:30
+```
+
+Behavior:
+
+- Validates that `startHour < endHour`
+- Stores the schedule in `~/.opcli/config.json`
+- Uses the stored schedule in `opcli stats`
+- Computes expected daily hours as `endHour - startHour - lunchDuration`
+
+### Files And Side Effects
+
+`opcli` can write to:
+
+- `~/.opcli/config.json`: credentials, session, schedule, and `autoLogin`
+- `~/.opcli/logs/*.json`: logged commit hashes per repository for `opcli log`
+- `~/.opcli/alert.json`: alert configuration
+- `.git/hooks/post-commit`: when `opcli hook install` is used
+- `.git/hooks/post-checkout`: when `opcli hook install` is used
+- `~/.bashrc` and `~/.zshrc`: when `opcli hook install` adds the `gpush` function
+- Your user crontab: when `opcli alert on` is used
+
+## Command Overview
+
+Top-level command groups:
+
+- `config`
+- `tasks`
+- `log`
+- `hook`
+- `notifications`
+- `reminder`
+- `stats`
+- `alert`
+
+## Tasks Commands
+
+### `opcli tasks list [search]`
+
+List work packages, assigned to you by default.
+
+```bash
+opcli tasks list
 opcli tasks list "keyword"
-
-# Lọc theo status
 opcli tasks list -s "In progress"
-
-# Lọc theo người khác
-opcli tasks list -a "username"
-
-# Tất cả task (không lọc assignee)
+opcli tasks list -a me
 opcli tasks list -a all
+opcli tasks list -a "username"
+opcli tasks list -a 123
+opcli tasks list --wp-version "Sprint 26"
+opcli tasks list --wp-version 1899 -a me -s "In progress"
 ```
 
-### Interactive search
+Options:
+
+- `-s, --status <status>`: client-side substring filter on the returned status label
+- `-a, --assignee <user>`: assignee name, numeric user ID, `me`, or `all`
+- `--wp-version <version>`: OpenProject version name or numeric ID
+
+Behavior:
+
+- Default assignee is `me`
+- If you pass a non-numeric assignee other than `me` or `all`, `opcli` searches users first
+- If a version name matches exactly or partially, `opcli` resolves it to an ID
+- If multiple users or versions match, the command prints candidates and exits so you can rerun with an ID such as `--wp-version 1899`
+- Results are sorted by `updatedAt desc`
+- The list output is capped by the underlying API page size of `100`
+
+### `opcli tasks versions [search]`
+
+List available OpenProject versions and sprints.
 
 ```bash
-# Search tasks của mình (live filter)
+opcli tasks versions
+opcli tasks versions "Sprint"
+opcli tasks versions 1899
+```
+
+Behavior:
+
+- Returns versions from OpenProject and prints a simple `ID | Name` table
+- Optional `search` filters case-insensitively by version name
+- Numeric `search` terms also match by version ID text
+
+### `opcli tasks search`
+
+Interactive search with live filtering.
+
+```bash
 opcli tasks search
-
-# Search tất cả tasks
 opcli tasks search -a all
+opcli tasks search -a me
 ```
 
-Gõ keyword → live filter theo subject, ID, status, priority, assignee → chọn task → action: View detail / Update / Comment / Create branch.
+Options:
 
-### Comment
+- `-a, --assignee <user>`: same assignee rules as `tasks list`
+
+Interactive actions after selecting a task:
+
+- `View detail`
+- `Update`
+- `Comment`
+- `Create branch`
+- `Exit`
+
+Filtering fields:
+
+- subject
+- task ID
+- status
+- priority
+- assignee
+
+### `opcli tasks view <id>`
+
+Show work package details.
 
 ```bash
-opcli tasks comment <id> "Nội dung comment"
+opcli tasks view 54379
+opcli tasks view 54379 --activities
+opcli tasks view 54379 --relations
+opcli tasks view 54379 --activities --relations
+opcli tasks view 54379 --web
 ```
 
-### Danh sách projects
+Options:
+
+- `--activities`: include activity history and comments
+- `--relations`: include related work packages
+- `--web`: open the task page in a browser
+
+Behavior:
+
+- `--web` uses the macOS `open` command
+- When the work package belongs to a version or sprint, the detail output includes a `Version` line
+- Descriptions and comments are rendered from HTML/Markdown into terminal-friendly text
+- Activity output includes timestamp, actor, change details, and formatted comments when available
+
+### `opcli tasks create`
+
+Create a new work package.
+
+```bash
+opcli tasks create --name "Task name" --description "Description" --assignee me --project "AI Agents"
+opcli tasks create --name "Task name" -a me -p 248
+opcli tasks create --name "Task name" -a "username" -p "Conative PaaS"
+opcli tasks create
+```
+
+Options:
+
+- `-n, --name <name>`: task subject
+- `-d, --description <text>`: task description
+- `-a, --assignee <user>`: assignee name, numeric user ID, or `me`
+- `-p, --project <project>`: project name or numeric ID
+
+Behavior:
+
+- If `--name` is omitted, `opcli` prompts for it
+- If `--description` is omitted, `opcli` prompts for it
+- If `--project` is omitted and only one project is available, `opcli` auto-selects it
+- If multiple projects exist, `opcli` prompts you to choose one
+- If you pass a non-numeric assignee name and multiple users match, `opcli` exits and asks you to rerun with a user ID
+
+### `opcli tasks update <id>`
+
+Update task fields, log time, or both.
+
+```bash
+opcli tasks update 54379
+opcli tasks update 54379 -s "In progress"
+opcli tasks update 54379 -a me
+opcli tasks update 54379 -a "username"
+opcli tasks update 54379 --start 2026-03-12 --due 2026-03-15
+opcli tasks update 54379 --description "New description"
+opcli tasks update 54379 --log-time 4
+opcli tasks update 54379 --log-time 4 --log-date 2026-03-12 --log-comment "Worked on ETL fixes"
+opcli tasks update 54379 -s "Developed" --log-time 1 --log-comment "Completed implementation"
+opcli tasks update 54379 -s "In progress" --start 2026-03-12 --due 2026-03-15 --log-time 2
+```
+
+Options:
+
+- `-s, --status <status>`: status name
+- `-a, --assignee <user>`: assignee name, numeric user ID, or `me`
+- `--start <date>`: start date in `YYYY-MM-DD`
+- `--due <date>`: due date in `YYYY-MM-DD`
+- `--description <text>`: replace description text
+- `--log-time <hours>`: log time in hours
+- `--log-date <date>`: log date in `YYYY-MM-DD`, defaults to today
+- `--log-comment <text>`: comment for the time entry
+
+Behavior:
+
+- If you pass update flags, `opcli` applies them directly
+- If you pass no flags at all, `opcli` enters interactive mode and lets you pick which fields to update
+- Status validation currently checks the instance status list from `/api/v3/statuses`
+- Assignee lookup supports `me`, numeric IDs, or a name search
+- Time logging can be combined with field updates in the same command
+
+Interactive mode can update:
+
+- status
+- assignee
+- start date
+- due date
+- description
+- logged time
+
+### `opcli tasks comment <id> <message>`
+
+Add a comment to a work package.
+
+```bash
+opcli tasks comment 54379 "Picked this up in the current sprint."
+```
+
+### `opcli tasks create-branch <id> <slug>`
+
+Create and check out a git branch linked to a task.
+
+```bash
+opcli tasks create-branch 54379 fix-ad-clicks
+opcli tasks create-branch 54379 fix-ad-clicks -p fix
+```
+
+Options:
+
+- `-p, --prefix <prefix>`: branch prefix, default `feature`
+
+Branch format:
+
+```text
+<prefix>/op-<id>-<sanitized-slug>
+```
+
+Examples:
+
+```text
+feature/op-54379-fix-ad-clicks
+fix/op-54379-fix-ad-clicks
+```
+
+Behavior:
+
+- The slug is lowercased and sanitized to alphanumeric, underscore, and hyphen characters
+- Runs `git checkout -b <branch>`
+- Suppresses the post-checkout hook prompt while creating the branch from `opcli`
+- After branch creation, prompts whether to update the task to `In progress`
+
+### `opcli tasks projects`
+
+List available OpenProject projects.
 
 ```bash
 opcli tasks projects
 ```
 
-### Tạo task mới
+Output is a simple table of project IDs and names.
+
+## Time Logging
+
+### Direct Time Logging By Ticket ID
+
+Use this when you already know the work package ID.
 
 ```bash
-# Tạo task với đầy đủ thông tin
-opcli tasks create --name "Tên task" --description "Mô tả" --assignee me --project "AI Agents"
-
-# Chỉ định project bằng ID
-opcli tasks create --name "Tên task" -a me -p 248
-
-# Gán cho người khác
-opcli tasks create --name "Tên task" -a "username" -p "Conative PaaS"
-
-# Interactive mode (không truyền flag)
-opcli tasks create
+opcli tasks update 54379 --log-time 1
+opcli tasks update 54379 --log-time 2 --log-date 2026-03-12
+opcli tasks update 54379 --log-time 1 --log-comment "Worked on ETL fixes"
+opcli tasks update 54379 -s "Developed" --log-time 1 --log-comment "Completed implementation"
 ```
 
-Nếu không truyền `-p`, sẽ hỏi chọn project (nếu có nhiều project). Nếu chỉ có 1 project thì tự động chọn.
+This path does not require a git repository.
 
-### Xem chi tiết task
+### `opcli log`
 
-```bash
-opcli tasks view <id>
-
-# Mở trên browser
-opcli tasks view <id> --web
-
-# Kèm activities
-opcli tasks view <id> --activities
-
-# Kèm relations
-opcli tasks view <id> --relations
-
-# Cả hai
-opcli tasks view <id> --activities --relations
-```
-
-### Cập nhật task
+Use branch-aware time logging based on commits in the current branch.
 
 ```bash
-# Interactive mode (chọn field để update)
-opcli tasks update <id>
-
-# Cập nhật status
-opcli tasks update <id> -s "In progress"
-
-# Cập nhật assignee
-opcli tasks update <id> -a "username"
-opcli tasks update <id> -a me
-
-# Cập nhật ngày
-opcli tasks update <id> --start 2026-03-12 --due 2026-03-15
-
-# Cập nhật description
-opcli tasks update <id> --description "Nội dung mới"
-
-# Log time
-opcli tasks update <id> --log-time 4 --log-date 2026-03-12 --log-comment "Nội dung"
-
-# Kết hợp nhiều thay đổi
-opcli tasks update <id> -s "In progress" --start 2026-03-12 --due 2026-03-15 --log-time 2
-```
-
-### Tạo branch từ task
-
-```bash
-# Mặc định prefix là feature
-opcli tasks create-branch <id> <slug>
-# → feature/op-<id>-<slug>
-
-# Chỉ định prefix
-opcli tasks create-branch <id> <slug> -p fix
-# → fix/op-<id>-<slug>
-
-# Ví dụ
-opcli tasks create-branch 54379 fix-ad-clicks -p fix
-# → fix/op-54379-fix-ad-clicks
-```
-
-Sau khi tạo branch, sẽ hỏi có muốn cập nhật task sang "In Process" không.
-
-### Auto log time từ git branch
-
-Tự động detect task ID từ branch name format `<prefix>/op-<id>-<slug>`.
-
-```bash
-# Interactive: hiện commits chưa log, chọn auto/manual hours
 opcli log
-
-# Log trực tiếp với số giờ
 opcli log --hours 2
 ```
 
-Flow:
-1. Detect branch → extract task ID
-2. Hiện danh sách commits chưa log
-3. Chọn mode: Auto (tính từ timestamps) hoặc Manual (nhập giờ)
-4. Confirm → log time → đánh dấu commits đã log
+Options:
 
-Trạng thái commits đã log được lưu tại `~/.opcli/logs/`.
+- `--hours <hours>`: skip auto/manual hour selection and set hours directly
 
-### Git hooks & automation
+Behavior:
 
-Cài đặt git hooks và shell function để tự động hóa workflow.
+- Requires a git repository
+- Extracts the task ID from the current branch name using the pattern `/op-<id>`
+- Reads unlogged commits from the current branch
+- Uses `git merge-base main <branch>` first, then `master`, then falls back to all commits reachable on the branch
+- Stores logged commit hashes in `~/.opcli/logs/<repo-hash>.json`
+- Still asks for final confirmation before creating the time entry
+
+Interactive mode:
+
+1. Show unlogged commits
+2. Ask whether to calculate hours automatically or manually
+3. Show the final hours/date summary
+4. Ask for confirmation
+5. Log time and persist commit hashes as logged
+
+## Hooks And Git Automation
+
+### `opcli hook install`
+
+Install repo hooks and a helper shell function.
 
 ```bash
-# Cài tất cả hooks
 opcli hook install
+```
 
-# Gỡ tất cả hooks
+What it installs:
+
+- `.git/hooks/post-commit`
+- `.git/hooks/post-checkout`
+- `gpush` function in `~/.bashrc`
+- `gpush` function in `~/.zshrc`
+
+Installed behavior:
+
+- `post-commit`
+  - If the latest commit subject contains `done:` (case-insensitive), run `opcli tasks update <id> --status "Developed"`
+  - Prompt for hours and optionally log time for the latest commit
+- `post-checkout`
+  - When a new branch is created and its name contains `/op-<id>`, prompt to update the task to `In progress`
+- `gpush`
+  - Runs `git push "$@"`
+  - If push succeeds and the branch contains `/op-<id>`, offer to update the task to `Developed` and set due date to today
+  - Skips the update prompt if the latest commit subject contains `WIP`
+
+After installation:
+
+```bash
+source ~/.zshrc
+# or
+source ~/.bashrc
+```
+
+### `opcli hook uninstall`
+
+Remove the installed hook sections and `gpush` shell function.
+
+```bash
 opcli hook uninstall
 ```
 
-Sau khi cài, opcli sẽ thiết lập:
+Behavior:
 
-**Post-commit hook** — mỗi lần `git commit`:
-- Nếu commit message chứa `done:` (không phân biệt hoa thường) → tự động cập nhật task sang "Developed"
-- Hỏi nhập hours để log time (enter để skip)
+- Removes only the `opcli`-marked sections when possible
+- Preserves unrelated hook content if the hook file contains other logic
 
-**Post-checkout hook** — khi `git checkout -b feature/op-<id>-*` tạo branch mới, sẽ hỏi có muốn cập nhật task sang "In Process" không.
+## Notifications
 
-**`gpush` shell function** — thay thế `git push`, sau khi push thành công:
-- Detect task ID từ branch name
-- Kiểm tra commit cuối có chứa "WIP" không → nếu có thì skip
-- Hỏi có muốn cập nhật task sang "Developed" và set due date hôm nay không
+### `opcli notifications list`
+
+List recent notifications.
 
 ```bash
-# Sử dụng gpush thay cho git push
-gpush
-gpush origin main
-gpush --force-with-lease
+opcli notifications list
+opcli notifications list -n 10
+opcli notifications list -a
 ```
 
-Sau khi cài, cần `source ~/.zshrc` hoặc `source ~/.bashrc` (hoặc mở terminal mới) để kích hoạt `gpush`.
+Options:
 
-### Notifications
+- `-u, --unread`: unread only, effectively the default behavior
+- `-a, --all`: include read notifications
+- `-n, --count <count>`: number of rows to show, default `20`
+
+Output includes:
+
+- read/unread marker
+- timestamp
+- reason
+- related work package ID when available
+- resource title
+- actor
+
+### `opcli notifications read [id]`
+
+Mark one or all notifications as read.
 
 ```bash
-# Danh sách unread (mặc định 20)
-opcli notifications list
-
-# Giới hạn số lượng
-opcli notifications list -n 10
-
-# Tất cả (cả đã đọc)
-opcli notifications list -a
-
-# Đánh dấu đã đọc
-opcli notifications read <id>
-
-# Đánh dấu tất cả đã đọc
+opcli notifications read 12345
 opcli notifications read --all
 ```
 
-### Reminder
+## Reminder
 
-Hiện tổng quan task theo mức độ ưu tiên deadline.
+### `opcli reminder`
+
+Show open tasks grouped by urgency.
 
 ```bash
-# Mặc định hiện tasks due trong 3 ngày
 opcli reminder
-
-# Tasks due trong 7 ngày
 opcli reminder -d 7
 ```
 
-Thứ tự hiển thị:
-1. 🔴 **Due today** — deadline hôm nay
-2. 🟡 **Due soon** — sắp đến deadline
-3. 🔵 **New** — task mới
-4. 🔴 **Overdue** — quá hạn
-5. ⚪ **Other** — còn lại
+Options:
 
-### Stats
+- `-d, --days <days>`: include tasks due within `N` days, default `3`
 
-Thống kê số giờ log time theo ngày trong tháng.
+Categories:
+
+- `Due today`
+- `Due soon`
+- `New`
+- `Overdue`
+- `Other`
+
+Behavior:
+
+- Closed and rejected tasks are excluded
+- Due dates are compared against today
+- New tasks without due dates are moved into the `New` section
+
+## Stats
+
+### `opcli stats`
+
+Show time logging statistics for the current user.
 
 ```bash
-# Cá nhân — tháng hiện tại
 opcli stats
-
-# Chỉ định tháng/năm
 opcli stats -m 2
 opcli stats -m 1 -y 2025
 ```
 
-Mỗi ngày hiện tổng giờ với màu: 🔴 <=4h, 🟡 <7h, 🟢 >=7h, kèm chi tiết task ID + hours.
-Summary cuối tháng: tổng giờ, trung bình/ngày, work days, logged, missing.
+Options:
 
-#### Team Stats
+- `-m, --month <month>`: month `1-12`, default current month
+- `-y, --year <year>`: default current year
+
+Behavior:
+
+- Uses your configured schedule, or defaults to `08:00-17:00` with lunch `12:00-13:30`
+- Prints one line per day
+- Skips weekends from expected-hour calculations
+- Shows expected total hours, logged total, average logged hours, work days, logged days, and missing days
+- Colors hours as:
+  - red: `<= 4h`
+  - yellow: `< 7h`
+  - green: `>= 7h`
+
+### Team Stats
 
 ```bash
-# Team theo tháng — chi tiết từng ngày
 opcli stats --team
-
-# Team tổng hợp theo tuần
 opcli stats --team -w
-
-# Team chi tiết ngày trong tuần cụ thể
 opcli stats --team -w 10
-
-# Team tháng khác
 opcli stats --team -m 2 -y 2026
 ```
 
-`-w` không có số: bảng tổng hợp theo tuần. `-w <n>`: chi tiết từng ngày trong tuần đó.
+Additional options:
 
-### Alert
+- `-t, --team`: switch to team mode
+- `-w, --week [weekNumber]`
+  - no value: weekly summary by member
+  - with a number: detailed view for that week
 
-Nhắc nhở log time hàng ngày. Sau giờ chỉ định (mặc định 17:00), cron sẽ kiểm tra và gửi notification.
+Modes:
+
+- `--team`: per-member monthly detail
+- `--team -w`: weekly summary table
+- `--team -w <n>`: specific-week daily table
+
+## Alerts
+
+### `opcli alert on`
+
+Enable a weekday reminder to check logged hours.
 
 ```bash
-# Bật alert (cron chạy 17:00 weekdays)
 opcli alert on
-
-# Bật alert lúc 18:00
 opcli alert on -h 18
+```
 
-# Tắt alert
+Options:
+
+- `-h, --hour <hour>`: hour of day, default `17`
+
+Behavior:
+
+- Saves `~/.opcli/alert.json`
+- Installs a weekday cron entry with the marker `# opcli-alert-check`
+- Runs `opcli alert check` at the chosen hour
+
+### `opcli alert off`
+
+Disable alerts and remove the cron entry.
+
+```bash
 opcli alert off
+```
 
-# Xem trạng thái
+### `opcli alert status`
+
+Show whether alerts are enabled.
+
+```bash
 opcli alert status
+```
 
-# Kiểm tra thủ công
+### `opcli alert check`
+
+Check today's logged hours and send a local notification.
+
+```bash
 opcli alert check
 ```
 
-Kết quả theo số giờ đã log:
-- **>=8h** → 🎉 Great job!
-- **>4h <8h** → 💪 Fighting!
-- **<4h** → ⚠️ Consider logging more
-- **0h** → 🔔 Don't forget!
+Current thresholds:
 
-Notification gửi qua `terminal-notifier` (cần `brew install terminal-notifier`) + luôn in ra terminal.
+- `>= 8h`: success message
+- `> 4h and < 8h`: keep-going message
+- `< 4h`: warning
+- `0h`: reminder to log time
 
+Notification delivery order:
 
-## Các status có sẵn
+1. `terminal-notifier`
+2. `osascript`
+3. terminal bell fallback
 
-New, In specification, Specified, Confirmed, To be scheduled, Scheduled, In progress, Developed, In testing, Tested, Test failed, Closed, On hold, Rejected, Staging, Production, Fixed
+## Branch Naming Convention
+
+Git-aware commands expect branch names like:
+
+```text
+feature/op-54379-fix-ad-clicks
+fix/op-54379-fix-ad-clicks
+chore/op-54379-update-docs
+```
+
+Task ID extraction rule:
+
+- Match `/op-(\d+)`
+
+Commands that depend on this pattern:
+
+- `opcli log`
+- `opcli hook install` automation
+- `gpush`
+- `opcli tasks create-branch`
+
+## Common Statuses
+
+The current README history in this repo references these statuses from the target OpenProject instance:
+
+- `New`
+- `In specification`
+- `Specified`
+- `Confirmed`
+- `To be scheduled`
+- `Scheduled`
+- `In progress`
+- `Developed`
+- `In testing`
+- `Tested`
+- `Test failed`
+- `Closed`
+- `On hold`
+- `Rejected`
+- `Staging`
+- `Production`
+- `Fixed`
+
+Treat these as instance-specific examples, not a guaranteed universal list.
+
+## Troubleshooting
+
+### `No configuration found`
+
+Run:
+
+```bash
+opcli config setup
+```
+
+### Authentication failed
+
+Likely causes:
+
+- expired or invalid session
+- wrong username or password
+- wrong server environment
+
+Fix:
+
+```bash
+opcli config setup
+```
+
+### `Cannot extract task ID from branch`
+
+Your branch name does not include `/op-<id>`.
+
+Either:
+
+- rename the branch to the expected pattern, or
+- log time directly by ticket ID with `opcli tasks update <id> --log-time ...`
+
+### `tasks view --web` does not open a browser
+
+The current implementation uses macOS `open`. On non-macOS systems, use the printed task URL manually or adapt the command locally.
+
+### Hook or `gpush` changes do not take effect
+
+Reload your shell:
+
+```bash
+source ~/.zshrc
+# or
+source ~/.bashrc
+```
+
+### Alert did not fire
+
+Check:
+
+- `~/.opcli/alert.json`
+- `crontab -l`
+- notification support on your machine
 
 ## Development
 
+Install dependencies:
+
 ```bash
-npm run dev      # Watch mode
-npm test         # Chạy test
-npm run build    # Build TypeScrip
-
-```
-Ví dụ:
-```
-opcli git:(master) opcli tasks list
-ID    | Status      | Priority  | Assignee               | Created    | Updated    | Subject
--------------------------------------------------------------------------------------------------------------------------------
-54379 | New         | Immediate | thuchuynh@chidoanh.com | 2026-03-11 | 2026-03-12 | [DE] Lỗi 1 số product có giá trị field Ad Clicks và Ad Spend thấp hơn source GG + FB trên Melinda
-54380 | In progress | Normal    | thuchuynh@chidoanh.com | 2026-03-11 | 2026-03-12 | [DE] Fix Bug Dynamic Mapping
-54158 | Closed      | High      | thuchuynh@chidoanh.com | 2026-03-02 | 2026-03-12 | [Support] DE truyền thêm request_user_agent:conative trong các request đến Mizmooz và As98
-54405 | Closed      | Normal    | thuchuynh@chidoanh.com | 2026-03-11 | 2026-03-12 | [Dynamic mapping][DE][AMZ] Lỗi  lệch số liệu ads spend, ads click ở conative so với  AMZ của org Purely Optimal 
-54130 | Closed      | Normal    | thuchuynh@chidoanh.com | 2026-02-27 | 2026-03-12 | [Dynamic Mapping] [DE] Lỗi lệch data Summary giữa Production và Staging API List Product
-54381 | Closed      | High      | thuchuynh@chidoanh.com | 2026-03-11 | 2026-03-12 | [Dynamic mapping][DE][AMZ] Lỗi  lệch số liệu tax và discount ở conative so với AMZ của org Purely Optimal
-54369 | Closed      | High      | thuchuynh@chidoanh.com | 2026-03-10 | 2026-03-12 | [Dynamic mapping][DE][AMZ] Lỗi  lệch số liệu gross quantity, gross sale ở conative so với  AMZ của org Purely Optimal 
-54134 | Closed      | Normal    | thuchuynh@chidoanh.com | 2026-02-27 | 2026-03-12 | [Dynamic Mapping] [DE] Lỗi lệch data Inventory giữa Production và Staging API List Product
-54132 | Closed      | Normal    | thuchuynh@chidoanh.com | 2026-02-27 | 2026-03-12 | [Dynamic Mapping] [DE] Lỗi lệch data AI giữa Production và Staging API List Product
-54407 | Rejected    | High      | thuchuynh@chidoanh.com | 2026-03-11 | 2026-03-12 | [Dynamic mapping][DE][AMZ] Lỗi  lệch số liệu product view ở org Annmarie 
-54313 | In progress | Normal    | thuchuynh@chidoanh.com | 2026-03-06 | 2026-03-10 | [TECH-DM-001] DM_P4 - Research solution & Todo list
-54360 | New         | Normal    | thuchuynh@chidoanh.com | 2026-03-10 | 2026-03-10 | [TECH-FAI-001] Phase 1 - Init Flow for AI Forecasting Automation
-54292 | Closed      | Immediate | thuchuynh@chidoanh.com | 2026-03-05 | 2026-03-09 | [Rithum/OPS] - Lỗi data tax ở OPS cao hơn so với data service
-54291 | Closed      | Immediate | thuchuynh@chidoanh.com | 2026-03-05 | 2026-03-09 | [Rithum/OPS] - Lỗi data return_value/return quantity ở OPS thấp hơn gấp đôi so với data service
-54337 | Developed   | Normal    | thuchuynh@chidoanh.com | 2026-03-09 | 2026-03-09 | [Bearchop] Extend free trial to 31/06/2026
-54311 | Closed      | Normal    | thuchuynh@chidoanh.com | 2026-03-06 | 2026-03-06 | Research how to implement Dynamic Injection Step
-54070 | Closed      | High      | thuchuynh@chidoanh.com | 2026-02-24 | 2026-03-04 | [DE][Onboarding Daklac Farms Fruit] - Lỗi data list sales channel ở conative cao hơn so với AMZ
-54206 | Developed   | High      | thuchuynh@chidoanh.com | 2026-03-03 | 2026-03-03 | [Noonday] Cập nhật trial đến 31.03.2026
-54067 | In progress | High      | thuchuynh@chidoanh.com | 2026-02-24 | 2026-03-03 | [DE][Onboarding Daklac Farms Fruit] - Lỗi lệch data FC transfer quantity so với AMZ
-54057 | Tested      | Immediate | thuchuynh@chidoanh.com | 2026-02-24 | 2026-02-26 | [Bearchop][BE]_Lỗi data sale ở conative nhỏ hơn so với source
-53669 | Developed   | Normal    | thuchuynh@chidoanh.com | 2026-01-26 | 2026-02-12 | [TECH-04-004] Refactor ERP ETL All Platform Handling Stock Metric & Stock Metadata
-52292 | Developed   | Normal    | thuchuynh@chidoanh.com | 2025-11-24 | 2026-02-12 | [TECH-DM-001] Phase 3 - Implement Ingest Step Mapping for SilverItem to TempItem
-53724 | Developed   | Normal    | thuchuynh@chidoanh.com | 2026-01-27 | 2026-02-11 | [TECH-DM-001] Implement Dynamic mapping for ERP Platform
+npm install
 ```
 
+Useful scripts:
+
+```bash
+npm run build
+npm test
+npm run dev
 ```
- opcli git:(master) ✗ opcli tasks view 45570 
-#45570  [Amazon Seller] - DE Discovery metric of FBA Inventory
 
-  Type:       Discovery
-  Project:    Conative PaaS
-  Status:     Developed
-  Priority:   Normal
-  Assignee:   thuchuynh@chidoanh.com
-  Author:     huynguyen@chidoanh.com
-  Progress:   0%
-  Created:    2025-07-25
-  Updated:    2025-07-30
-  Start:      2025-07-28
-  Due:        2025-07-29
+Project entry points:
 
-Description:
-
-1m| **Data cần lấy**        | **Note**                                                            |
-| ----------------------- | ------------------------------------------------------------------- |
-| Days of Supply          | ![ (https://devtak.cbidigital.com/api/v3/attachments/58401/content) |
-| Recommended min. level  | ![](https://devtak.cbidigital.com/api/v3/attachments/58403/content) |
-| FBA Recommended Restock | ![](https://devtak.cbidigital.com/api/v3/attachments/58402/content) |
-| Reccomended Ship date   | ![](https://devtak.cbidigital.com/api/v3/attachments/58400/content) |
-| Shipment Name           | ![](https://devtak.cbidigital.com/api/v3/attachments/58399/content) |
-| Created Date            |                                                                     |
-| Shipment Status         |                                                                     |
-| Shipment Qty            |                                                                     |
-| Shipment Item           |                                                                     |
-| Ranking                 |                                                                     |
-| Rating of product       |                                                                     |
-| Product View            |                                                                     |
-| Keyword of varaint      |                                                                     |
-```
+- `src/index.ts`
+- `src/commands/*.ts`
+- `src/api/openproject.ts`
+- `src/config/store.ts`
+- `bin/opcli.js`

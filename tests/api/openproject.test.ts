@@ -109,10 +109,27 @@ describe("OpenProjectClient", () => {
   it("getWorkPackage returns work package with lockVersion", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ id: 10, subject: "Task A", lockVersion: 5 }),
+      json: () => Promise.resolve({
+        id: 10,
+        subject: "Task A",
+        lockVersion: 5,
+        _links: {
+          version: { title: "Sprint 26" },
+        },
+      }),
     });
     const wp = await client.getWorkPackage(10);
     expect(wp.lockVersion).toBe(5);
+    expect(wp.version).toBe("Sprint 26");
+  });
+
+  it("getWorkPackage returns empty version when missing", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ id: 10, subject: "Task A", lockVersion: 5 }),
+    });
+    const wp = await client.getWorkPackage(10);
+    expect(wp.version).toBe("");
   });
 
   it("getAvailableStatuses returns status list", async () => {

@@ -26,6 +26,7 @@ export interface WorkPackageDetail extends WorkPackage {
   assignee: string;
   author: string;
   project: string;
+  version: string;
   type: string;
   startDate: string;
   dueDate: string;
@@ -255,6 +256,7 @@ export class OpenProjectClient {
       assignee: el._links?.assignee?.title || "Unassigned",
       author: el._links?.author?.title || "Unknown",
       project: el._links?.project?.title || "Unknown",
+      version: el._links?.version?.title || "",
       type: el._links?.type?.title || "Unknown",
       startDate: el.startDate || "",
       dueDate: el.dueDate || "",
