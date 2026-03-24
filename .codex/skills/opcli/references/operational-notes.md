@@ -1,4 +1,4 @@
-# opcli Agent Operational Notes
+# opcli Operational Notes
 
 Use this file when `opcli` behaves unexpectedly, when the request touches hooks or alerts, or when you need implementation-level detail before running mutating commands.
 
@@ -24,6 +24,12 @@ Use this file when `opcli` behaves unexpectedly, when the request touches hooks 
 - branch-based `opcli log` expects the current branch name to contain `/op-<id>`.
 - direct logging with `opcli tasks update <id> --log-time ...` does not require git context.
 - the `autoLogin` flag is stored, but the current runtime does not actively refresh sessions in the background.
+
+## Versions And Sprints
+
+- `opcli tasks versions [search]` lists OpenProject versions and sprints as an `ID | Name` table.
+- The optional `search` term matches case-insensitively by version name and also by numeric ID text.
+- `opcli tasks view <id>` prints a `Version` line when the work package response includes `_links.version.title`.
 
 ## Status Validation
 

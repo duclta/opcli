@@ -1,9 +1,8 @@
----
-name: opcli-agent
+name: opcli
 description: Use the opcli OpenProject CLI from this repository to inspect work packages, update status or assignee, create tasks and git branches, log time by ticket or branch activity, manage notifications, reminders, stats, and alerts, install local workflow hooks, or troubleshoot opcli setup. Trigger when the user mentions opcli, OpenProject CLI workflows, work package IDs or statuses, time logging, branch names like feature/op-123-slug, or terminal-based OpenProject automation.
 ---
 
-# Opcli Agent
+# opcli
 
 Use this skill when an agent needs repo-local guidance for operating `opcli`. Prefer direct CLI execution for concrete requests, verify setup before mutating state, and load the reference files only when exact syntax or troubleshooting detail is needed.
 
@@ -12,9 +11,10 @@ Use this skill when an agent needs repo-local guidance for operating `opcli`. Pr
 1. Run `bash scripts/opcli-doctor.sh` when setup, repo state, or shell automation is uncertain.
 2. Install `opcli` with `npm i -g @huynhthuc/opcli` or build this repository if the command is missing.
 3. Run `opcli config setup` if `~/.opcli/config.json` is missing or auth looks stale.
-4. Prefer `opcli tasks update <id> --log-time ...` when the user already gave a work package ID.
-5. Use `opcli log` only when the user wants branch-aware logging from git commits.
-6. Read [`references/commands.md`](references/commands.md) for command syntax and [`references/operational-notes.md`](references/operational-notes.md) for side effects and implementation caveats.
+4. Use `opcli tasks versions [search]` when the user needs to browse versions or sprints before filtering tasks.
+5. Prefer `opcli tasks update <id> --log-time ...` when the user already gave a work package ID.
+6. Use `opcli log` only when the user wants branch-aware logging from git commits.
+7. Read [`references/commands.md`](references/commands.md) for command syntax and [`references/operational-notes.md`](references/operational-notes.md) for side effects and implementation caveats.
 
 ## Prefer Non-Interactive Execution
 
@@ -45,6 +45,7 @@ Run `bash scripts/opcli-doctor.sh` first when the machine or repository state is
 Treat these as read-only by default:
 
 - `tasks list`
+- `tasks versions`
 - `tasks search`
 - `tasks view`
 - `tasks projects`
@@ -70,7 +71,9 @@ Inspect current state first if intent is ambiguous, then ask a short clarifying 
 
 ## Map Intent To Command Family
 
-Use `tasks` for work package discovery, creation, updates, comments, project lookup, and git branch creation.
+Use `tasks` for work package discovery, version and sprint lookup, creation, updates, comments, project lookup, and git branch creation.
+
+Use `tasks versions [search]` when the user explicitly asks to list versions, releases, or sprints.
 
 Use `tasks update <id> --log-time ...` for direct ticket-based logging.
 
@@ -108,6 +111,7 @@ Remember these current behaviors from the repository code:
 
 - `opcli config setup` always targets `https://devtak.cbidigital.com`
 - the stored password is base64-encoded, not encrypted
+- `tasks view` prints a `Version` line when the work package has `_links.version.title`
 - `tasks view --web` uses macOS `open`
 - `alert` prefers `terminal-notifier`, then `osascript`, then a terminal bell
 - status validation currently uses the instance-wide `/api/v3/statuses` list rather than per-task transition rules

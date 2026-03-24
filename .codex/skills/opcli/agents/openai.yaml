@@ -1,0 +1,4 @@
+interface:
+  display_name: "opcli"
+  short_description: "Operate OpenProject via the opcli CLI"
+  default_prompt: "Use $opcli to inspect or update OpenProject work packages with opcli."

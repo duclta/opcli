@@ -1,4 +1,4 @@
-# opcli Agent Command Reference
+# opcli Command Reference
 
 Use this file when you need exact syntax, examples, or a quick reminder of which command family matches the request.
 
@@ -19,7 +19,7 @@ Notes:
 
 ## Tasks
 
-### List And Search
+### List, Search, And Versions
 
 ```bash
 opcli tasks list
@@ -30,6 +30,9 @@ opcli tasks list -a all
 opcli tasks list -a "username"
 opcli tasks list --wp-version "Sprint 26"
 opcli tasks list --wp-version 1899 -a me -s "In progress"
+opcli tasks versions
+opcli tasks versions "Sprint"
+opcli tasks versions 1899
 opcli tasks search
 opcli tasks search -a all
 opcli tasks projects
@@ -41,6 +44,8 @@ Notes:
 - `-a/--assignee` accepts `me`, `all`, a numeric ID, or a user search string.
 - `--wp-version` accepts a version name or numeric ID.
 - If multiple versions match, the current CLI prints matching IDs and you should rerun with `--wp-version <id>`.
+- Use `tasks versions [search]` when the user wants to browse available versions or sprints first.
+- `tasks versions` filters case-insensitively by version name and also matches numeric ID text.
 - Use `tasks search` only when the interactive live-filter flow is appropriate.
 
 ### View
@@ -52,6 +57,10 @@ opcli tasks view <id> --activities
 opcli tasks view <id> --relations
 opcli tasks view <id> --activities --relations
 ```
+
+Behavior:
+
+- When the work package belongs to a version or sprint, the detail output includes a `Version` line.
 
 ### Create
 
