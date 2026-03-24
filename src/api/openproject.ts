@@ -78,6 +78,12 @@ export interface Status {
   href: string;
 }
 
+export interface Version {
+  id: number;
+  name: string;
+  href: string;
+}
+
 export class OpenProjectClient {
   private baseUrl: string;
   private cookie: string;
@@ -189,7 +195,16 @@ export class OpenProjectClient {
     }));
   }
 
-  async listWorkPackages(options?: { search?: string; assignee?: string }): Promise<WorkPackage[]> {
+  async listVersions(): Promise<Version[]> {
+    const data = await this.request("/api/v3/versions?pageSize=500");
+    return (data._embedded?.elements || []).map((el: any) => ({
+      id: el.id,
+      name: el.name || "",
+      href: el._links?.self?.href || `/api/v3/versions/${el.id}`,
+    }));
+  }
+
+  async listWorkPackages(options?: { search?: string; assignee?: string; version?: string }): Promise<WorkPackage[]> {
     const filters: any[] = [];
     let assignee = options?.assignee || "me";
     if (assignee === "me") {
@@ -201,6 +216,9 @@ export class OpenProjectClient {
     }
     if (options?.search) {
       filters.push({ subjectOrId: { operator: "**", values: [options.search] } });
+    }
+    if (options?.version) {
+      filters.push({ version: { operator: "=", values: [options.version] } });
     }
     const params = new URLSearchParams({
       filters: JSON.stringify(filters),

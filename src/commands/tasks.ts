@@ -5,7 +5,7 @@ import { NodeHtmlMarkdown } from "node-html-markdown";
 import { loadConfig } from "../config/store.js";
 import { OpenProjectClient } from "../api/openproject.js";
 import { select, input, checkbox, search, confirm } from "@inquirer/prompts";
-import type { WorkPackage } from "../api/openproject.js";
+import type { WorkPackage, Version } from "../api/openproject.js";
 
 function requireConfig() {
   const config = loadConfig();
@@ -170,7 +170,8 @@ tasksCommand
   .description("List work packages assigned to you")
   .option("-s, --status <status>", "Filter by status name")
   .option("-a, --assignee <user>", "Filter by assignee (name, ID, or 'all')")
-  .action(async (search: string | undefined, options: { status?: string; assignee?: string }) => {
+  .option("--wp-version <version>", "Filter by OpenProject version name or ID")
+  .action(async (search: string | undefined, options: { status?: string; assignee?: string; wpVersion?: string }) => {
     const config = requireConfig();
     const client = new OpenProjectClient(config);
 
@@ -192,7 +193,33 @@ tasksCommand
           process.exit(1);
         }
       }
-      let tasks = await client.listWorkPackages({ search, assignee });
+      let version = options.wpVersion;
+      if (version && isNaN(Number(version))) {
+        const versions = await client.listVersions();
+        const normalized = version.trim().toLowerCase();
+        const exactMatches = versions.filter((v: Version) => v.name.trim().toLowerCase() === normalized);
+        const partialMatches = versions.filter((v: Version) => v.name.trim().toLowerCase().includes(normalized));
+        const matches = exactMatches.length > 0 ? exactMatches : partialMatches;
+
+        if (matches.length === 0) {
+          console.error(`No version found matching "${version}".`);
+          process.exit(1);
+        }
+        if (matches.length === 1) {
+          version = String(matches[0].id);
+          console.log(`Found version: ${matches[0].name} (#${matches[0].id})\n`);
+        } else {
+          console.log("Multiple versions found:");
+          matches.slice(0, 20).forEach((v) => console.log(`  ${v.id} - ${v.name}`));
+          if (matches.length > 20) {
+            console.log(`  ...and ${matches.length - 20} more`);
+          }
+          console.error("\nSpecify version ID with --version <id>");
+          process.exit(1);
+        }
+      }
+
+      let tasks = await client.listWorkPackages({ search, assignee, version });
       if (options.status) {
         tasks = tasks.filter(
           (t: WorkPackage) => t.status.toLowerCase().includes(options.status!.toLowerCase())
